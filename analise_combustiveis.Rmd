@@ -1,6 +1,6 @@
 ---
 title: "Análise de Vendas de Combustíveis no Brasil"
-author: "Seu Nome"
+author: "Sofia Vargas"
 output: html_document
 ---
 
