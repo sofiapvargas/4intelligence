@@ -1,0 +1,298 @@
+---
+title: "Análise de Vendas de Combustíveis no Brasil"
+author: "Seu Nome"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+library(readxl)
+library(janitor)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(stringr)
+```
+
+## 📁 Leitura e tratamento dos dados
+
+```{r leitura}
+diesel <- read_excel("vendas_distribuidoras_anp 1 (2).xlsx", sheet = "diesel") %>%
+  clean_names() %>%
+  mutate(produto = "Diesel") %>%
+  pivot_longer(cols = starts_with("x"), names_to = "ano", values_to = "valor_em_vendas") %>%
+  mutate(
+    ano = str_remove(ano, "x") |> as.integer(),
+    mes = as.integer(meses),
+    data = make_date(ano, mes, 1)
+  ) %>%
+  filter(data >= as.Date("2003-01-01"), data <= as.Date("2020-12-01")) %>%
+  select(regiao, produto, data, valor_em_vendas)
+
+gasolina <- read_excel("vendas_distribuidoras_anp 1 (2).xlsx", sheet = "gasolina") %>%
+  clean_names() %>%
+  mutate(produto = "Gasolina") %>%
+  pivot_longer(cols = starts_with("x"), names_to = "ano", values_to = "valor_em_vendas") %>%
+  mutate(
+    ano = str_remove(ano, "x") |> as.integer(),
+    mes = as.integer(meses),
+    data = make_date(ano, mes, 1)
+  ) %>%
+  filter(data >= as.Date("2003-01-01"), data <= as.Date("2020-12-01")) %>%
+  select(regiao, produto, data, valor_em_vendas)
+
+etanol <- read_excel("vendas_distribuidoras_anp 1 (2).xlsx", sheet = "etanol") %>%
+  clean_names() %>%
+  mutate(produto = "Etanol") %>%
+  pivot_longer(cols = starts_with("x"), names_to = "ano", values_to = "valor_em_vendas") %>%
+  mutate(
+    ano = str_remove(ano, "x") |> as.integer(),
+    mes = as.integer(meses),
+    data = make_date(ano, mes, 1)
+  ) %>%
+  filter(data >= as.Date("2003-01-01"), data <= as.Date("2020-12-01")) %>%
+  select(regiao, produto, data, valor_em_vendas)
+
+df <- bind_rows(diesel, gasolina, etanol)
+```
+
+## 📈 1. Qual é a sazonalidade da venda de combustíveis no Brasil?
+
+```{r sazonalidade-total}
+df_sazonal <- df %>%
+  filter(regiao == "br") %>%
+  group_by(data, produto) %>%
+  summarise(venda_total = sum(valor_em_vendas, na.rm = TRUE), .groups = "drop")
+
+ggplot(df_sazonal, aes(x = data, y = venda_total, color = produto)) +
+  geom_line(size = 1) +
+  labs(title = "Vendas Mensais de Combustíveis no Brasil (Região BR)",
+       y = "Volume de Vendas (m³)", x = "Data", color = "Produto") +
+  theme_minimal()
+```
+
+## 📍 2. Essa sazonalidade é igual em todos os estados?
+
+### Gasolina
+
+```{r gasolina-estados}
+df_estado_gasolina <- df %>%
+  filter(produto == "Gasolina", regiao != "br") %>%
+  group_by(regiao, data) %>%
+  summarise(venda = sum(valor_em_vendas), .groups = "drop")
+
+ggplot(df_estado_gasolina, aes(x = data, y = venda, color = regiao)) +
+  geom_line(alpha = 0.6) +
+  labs(title = "Sazonalidade das Vendas de Gasolina por Estado",
+       y = "Volume (m³)", x = "Data", color = "UF") +
+  theme_minimal()
+```
+
+### Diesel
+
+```{r diesel-estados}
+df_estado_diesel <- df %>%
+  filter(produto == "Diesel", regiao != "br") %>%
+  group_by(regiao, data) %>%
+  summarise(venda = sum(valor_em_vendas), .groups = "drop")
+
+ggplot(df_estado_diesel, aes(x = data, y = venda, color = regiao)) +
+  geom_line(alpha = 0.6) +
+  labs(title = "Sazonalidade das Vendas de Diesel por Estado",
+       y = "Volume (m³)", x = "Data", color = "UF") +
+  theme_minimal()
+```
+
+### Etanol
+
+```{r etanol-estados}
+df_estado_etanol <- df %>%
+  filter(produto == "Etanol", regiao != "br") %>%
+  group_by(regiao, data) %>%
+  summarise(venda = sum(valor_em_vendas), .groups = "drop")
+
+ggplot(df_estado_etanol, aes(x = data, y = venda, color = regiao)) +
+  geom_line(alpha = 0.6) +
+  labs(title = "Sazonalidade das Vendas de Etanol por Estado",
+       y = "Volume (m³)", x = "Data", color = "UF") +
+  theme_minimal()
+```
+
+## 📊 3. Como o consumo está distribuído entre os estados?
+
+```{r distribuicao-estados}
+df_tipo_estado <- df %>%
+  filter(regiao != "br") %>%
+  group_by(produto, regiao) %>%
+  summarise(venda_total = sum(valor_em_vendas), .groups = "drop")
+
+ggplot(df_tipo_estado, aes(x = reorder(regiao, -venda_total), y = venda_total, fill = produto)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Distribuição de Vendas por Tipo de Combustível e Estado",
+       x = "Estado (UF)", y = "Volume Total (m³)", fill = "Produto") +
+  theme_minimal() +
+  coord_flip()
+# Análise para DF (Distrito Federal)
+df_df <- df %>%
+  filter(regiao == "df")
+
+consumo_por_produto_df <- df_df %>%
+  group_by(produto) %>%
+  summarise(total_vendido = sum(valor_em_vendas, na.rm = TRUE), .groups = "drop")
+
+total_geral_df <- sum(consumo_por_produto_df$total_vendido)
+
+consumo_por_produto_df <- consumo_por_produto_df %>%
+  mutate(percentual = total_vendido / total_geral_df * 100,
+         estado = "df")
+
+# Análise para GO (Goiás)
+df_go <- df %>%
+  filter(regiao == "go")
+
+consumo_por_produto_go <- df_go %>%
+  group_by(produto) %>%
+  summarise(total_vendido = sum(valor_em_vendas, na.rm = TRUE), .groups = "drop")
+
+total_geral_go <- sum(consumo_por_produto_go$total_vendido)
+
+consumo_por_produto_go <- consumo_por_produto_go %>%
+  mutate(percentual = total_vendido / total_geral_go * 100,
+         estado = "go")
+
+# Análise para MA (Maranhão)
+df_ma <- df %>%
+  filter(regiao == "ma")
+
+consumo_por_produto_ma <- df_ma %>%
+  group_by(produto) %>%
+  summarise(total_vendido = sum(valor_em_vendas, na.rm = TRUE), .groups = "drop")
+
+total_geral_ma <- sum(consumo_por_produto_ma$total_vendido)
+
+consumo_por_produto_ma <- consumo_por_produto_ma %>%
+  mutate(percentual = total_vendido / total_geral_ma * 100,
+         estado = "ma")
+
+# Análise para MG (Minas Gerais)
+df_mg <- df %>%
+  filter(regiao == "mg")
+
+consumo_por_produto_mg <- df_mg %>%
+  group_by(produto) %>%
+  summarise(total_vendido = sum(valor_em_vendas, na.rm = TRUE), .groups = "drop")
+
+total_geral_mg <- sum(consumo_por_produto_mg$total_vendido)
+
+consumo_por_produto_mg <- consumo_por_produto_mg %>%
+  mutate(percentual = total_vendido / total_geral_mg * 100,
+         estado = "mg")
+
+# Análise para MT (Mato Grosso)
+df_mt <- df %>%
+  filter(regiao == "mt")
+
+consumo_por_produto_mt <- df_mt %>%
+  group_by(produto) %>%
+  summarise(total_vendido = sum(valor_em_vendas, na.rm = TRUE), .groups = "drop")
+
+total_geral_mt <- sum(consumo_por_produto_mt$total_vendido)
+
+consumo_por_produto_mt <- consumo_por_produto_mt %>%
+  mutate(percentual = total_vendido / total_geral_mt * 100,
+         estado = "mt")
+
+# Análise para PA (Pará)
+df_pa <- df %>%
+  filter(regiao == "pa")
+
+consumo_por_produto_pa <- df_pa %>%
+  group_by(produto) %>%
+  summarise(total_vendido = sum(valor_em_vendas, na.rm = TRUE), .groups = "drop")
+
+total_geral_pa <- sum(consumo_por_produto_pa$total_vendido)
+
+consumo_por_produto_pa <- consumo_por_produto_pa %>%
+  mutate(percentual = total_vendido / total_geral_pa * 100,
+         estado = "pa")
+
+# Análise para SP (São Paulo)
+df_sp <- df %>%
+  filter(regiao == "sp")
+
+consumo_por_produto_sp <- df_sp %>%
+  group_by(produto) %>%
+  summarise(total_vendido = sum(valor_em_vendas, na.rm = TRUE), .groups = "drop")
+
+total_geral_sp <- sum(consumo_por_produto_sp$total_vendido)
+
+consumo_por_produto_sp <- consumo_por_produto_sp %>%
+  mutate(percentual = total_vendido / total_geral_sp * 100,
+         estado = "sp")
+
+# Análise para TO (Tocantins)
+df_to <- df %>%
+  filter(regiao == "to")
+
+consumo_por_produto_to <- df_to %>%
+  group_by(produto) %>%
+  summarise(total_vendido = sum(valor_em_vendas, na.rm = TRUE), .groups = "drop")
+
+total_geral_to <- sum(consumo_por_produto_to$total_vendido)
+
+consumo_por_produto_to <- consumo_por_produto_to %>%
+  mutate(percentual = total_vendido / total_geral_to * 100,
+         estado = "to")
+
+# Combinar todos os resultados
+resultados_completos <- bind_rows(
+  consumo_por_produto_df,
+  consumo_por_produto_go,
+  consumo_por_produto_ma,
+  consumo_por_produto_mg,
+  consumo_por_produto_mt,
+  consumo_por_produto_pa,
+  consumo_por_produto_sp,
+  consumo_por_produto_to
+)
+
+# Exibir resultados consolidados
+print(resultados_completos)
+
+# Visualização gráfica (opcional)
+library(ggplot2)
+ggplot(resultados_completos, aes(x = estado, y = percentual, fill = produto)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Distribuição percentual de vendas por estado",
+       x = "Estado",
+       y = "Percentual (%)",
+       fill = "Produto") +
+  theme_minimal()
+```
+
+## 📉 4. Evolução do mercado nos últimos 5 anos
+
+```{r mercado-total}
+df_ultimos_5_anos <- df %>%
+  filter(regiao == "br", data >= as.Date("2016-01-01")) %>%
+  group_by(data) %>%
+  summarise(venda_total = sum(valor_em_vendas), .groups = "drop")
+
+ggplot(df_ultimos_5_anos, aes(x = data, y = venda_total)) +
+  geom_line(color = "steelblue", size = 1) +
+  labs(title = "Evolução do Mercado de Combustíveis no Brasil (2016–2020)",
+       y = "Volume Total (m³)", x = "Data") +
+  theme_minimal()
+```
+
+## ✅ Conclusão
+
+- O mercado de combustíveis no Brasil apresenta padrões de consumo que variam significativamente ao longo do ano, revelando uma clara sazonalidade influenciada por fatores econômicos, climáticos e culturais. Essa variação é particularmente evidente quando analisamos os três principais produtos: diesel, etanol e gasolina, cada um com dinâmicas próprias de demanda.O diesel, por exemplo, tem seu consumo diretamente ligado ao ciclo do agronegócio. Já a gasolina, majoritariamente utilizada em frotas de passeio, tem seu movimento atrelado à fatores sociais, como momentos de férias. O etanol, por sua vez, tem sua sazonalidade atrelada coo clima e à produção de cana-de-açúcar. Durante o verão, especialmente em janeiro e fevereiro, as vendas atingem seus maiores volumes, beneficiadas pela colheita da cana, que garante maior oferta e preços mais competitivos em relação à gasolina.Contudo, no inverno, o consumo diminui, em função da entressafra da cana. 
+
+- A sazonalidade das vendas de combustíveis não segue um padrão uniforme em todo o território nacional. No caso do etanol, os estados do Centro-Sul, como São Paulo, Minas Gerais e Goiás, apresentam uma sazonalidade mais acentuada, com picos de consumo durante os meses de verão, coincidindo com a safra da cana-de-açúcar. Já nos estados do Nordeste, onde a produção de cana é menor e a frota flexível menos expressiva, as variações sazonais são mais suaves. O consumo de diesel revela que nos estados agrícolas como Mato Grosso, Paraná e Rio Grande do Sul, os picos de demanda ocorrem durante os períodos de safra, enquanto nos estados industrializados como São Paulo, a sazonalidade está mais relacionada aos ciclos de produção industrial. Estados com forte atividade mineradora, como Pará e Minas Gerais, apresentam padrões próprios, influenciados pelos calendários de extração e transporte de minérios.A gasolina também exibe variações regionais importantes. Nos estados turísticos como Santa Catarina, Rio de Janeiro e Bahia, o consumo apresenta picos acentuados durante a alta temporada de verão e feriados prolongados. Em contraste, nos estados com menor atividade turística, a sazonalidade é menos pronunciada e mais relacionada aos ciclos econômicos locais.
+
+- O mercado brasileiro de combustíveis passou por transformações significativas no período de 2016 a 2020, revelando um cenário de desafios e adaptações. No início do intervalo analisado, em 2016, o mercado ainda sentia os efeitos da grave recessão econômica que atingiu o país a partir de 2015. A retração das atividades industriais e do comércio reduziu consideravelmente a demanda por combustíveis, estabelecendo um patamar mais baixo de consumo. Nos anos seguintes, é possível inferir que o setor enfrentou dificuldades para se recuperar, diante do crescimento econômico modesto do país. O ano de 2020 trouxe o desafio sem precedentes da pandemia de COVID-19, que impactou drasticamente o mercado de combustíveis. As medidas de isolamento social e a paralisação de diversas atividades econômicas resultaram em uma queda abrupta no consumo, especialmente no segundo trimestre daquele ano. O diesel, por sua essencialidade nas cadeias de abastecimento e no agronegócio, mostrou maior resiliência, enquanto a gasolina e o etanol sofreram reduções mais acentuadas em seu consumo.
+
+
